@@ -3,28 +3,35 @@ It is designed to work with a webcam that's configured to save 1 minute files to
 It monitors all folders under a root folder looking for MP4s without correcponding TXT files.
 It then uses Whisper Ivrit models on a MP4 to transcribe it.
 
-Installation:
-# upgrade OS
+# Installation:
+## Upgrade OS
+```
 sudo apt update
 sudo apt upgrade
 sudo restart
 sudo reboot
+```
 
-# samba installation in order to configure dump from webcam
+## Samba installation in order to configure dump from webcam
+```
 sudo apt install samba samba-common-bin -y
 mkdir -p ~/share
 chmod 777 ~/share
 cd ~/share/
-# configure SAMBA share:
-# open /etc/samba/smb.conf
-# under global put:
+```
+## Configure SAMBA share:
+Open /etc/samba/smb.conf and under ```[global]``` put:
+```
 #### added support for xiaomi
 server min protocol = NT1
 ntlm auth = yes
 map to guest = Bad user
+```
 
-# then at the end configure the shared folders - once for xiaomi as public and once for windows as secured
-# replace proper path + user names
+Then at the end, configure the shared folders - once for xiaomi as public and once for windows as secured
+***IMPORTANT: replace proper path + user names***
+
+```
 [nas]
 path = /home/yosi/share
 writeable = yes
@@ -41,51 +48,78 @@ writable = yes
 create mask = 0777
 directory mask = 0777
 force user = yosi
+```
 
-### end samba configuration
+Restart samba `sudo systemctl restart smbd`
 
-sudo systemctl restart smbd
-# activate samba user
+Activate samba user
+```
 sudo smbpasswd -a yosi
 sudo smbpasswd -e yosi
-sudo systemctl restart smbd
+```
 
-# install python
+Restart samba `sudo systemctl restart smbd`
+
+# Install python
+```
 sudo apt install python3
-python3
-python
+```
 
-# add python alias to bashrc
+# Add python alias to bashrc
+```
 sudo pico ~/.bashrc
-# add following at the file end:
-alias python=python3
+```
+Add following at the file end:
+`alias python=python3`
 
-# restart shell
+# Restart shell
+```
 logout
+```
 
-# check python
+# Check python
+```
 python --version
+```
 
-# create folder
+# Create folder
+```
 mkdir whisper-runner
 cd whisper-runner/
+```
 
-# create venv
+# Create venv
+```
 sudo apt install python3.13-venv
 python -m venv venv
-# activate venv
-source venv/bin/activate
+```
 
+# Activate venv
+```
+source venv/bin/activate
+```
+
+# Install packages
+```
 pip install --upgrade pip
 pip install ctranslate2 transformers ffmpeg-python soundfile protobuf faster-whisper ffmpeg
+```
 
-# install model in to subfolder  ivrit-ai-whisper-large-v3-turbo-ct2
+# Install files
 
-# install files
+1. Install project files in to whisper-runner folder...
+2. Install model in to subfolder - 
+Download model from 
+https://huggingface.co/ivrit-ai/whisper-large-v3-turbo-ct2/tree/main and save it in folder `ivrit-ai-whisper-large-v3-turbo-ct2`
 
-# run without interruption
+
+# Run without interruption
+```
 source venv/bin/activate
 nohup python /home/yosi/share/transcribe.py /home/yosi/share/
+```
 
-# view log
+The new videos should be saved by webcam to subfolders of /share/
+
+# View live log
 tail -f transcribe.log
