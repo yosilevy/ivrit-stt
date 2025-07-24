@@ -1,0 +1,13 @@
+[Unit]
+Description=Whisper Transcription Service
+After=network.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME_HERE
+WorkingDirectory=/path/to/your/project
+ExecStart=/path/to/your/project/venv/bin/python /path/to/your/project/transcribe.py /path/to/your/data
+Restart=always
+
+[Install]
+WantedBy=multi-user.target 
