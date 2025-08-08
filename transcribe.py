@@ -30,14 +30,28 @@ def setup_logging(log_dir):
 
 def extract_audio(input_file, output_wav):
     """Extracts mono 16kHz audio from an MP4 file and returns extraction time in seconds."""
+    # Check if input file exists and is accessible
+    if not os.path.exists(input_file):
+        raise FileNotFoundError(f"Input file does not exist: {input_file}")
+    
+    if not os.access(input_file, os.R_OK):
+        raise PermissionError(f"Cannot read input file: {input_file}")
+    
     start = time.time()
-    (
-        ffmpeg
-        .input(input_file)
-        .output(output_wav, ac=1, ar='16000')
-        .overwrite_output()
-        .run(quiet=True)
-    )
+    try:
+        (
+            ffmpeg
+            .input(input_file)
+            .output(output_wav, ac=1, ar='16000')
+            .overwrite_output()
+            .run(quiet=True)
+        )
+    except ffmpeg.Error as e:
+        # Log the ffmpeg error details for debugging
+        print(f"FFmpeg error for file {input_file}:")
+        print(f"  stdout: {e.stdout.decode('utf-8') if e.stdout else 'None'}")
+        print(f"  stderr: {e.stderr.decode('utf-8') if e.stderr else 'None'}")
+        raise
     end = time.time()
     return end - start
 
@@ -64,12 +78,19 @@ def get_subfolders_sorted_by_date(root_folder):
 
 def get_unhandled_mp4s(folder):
     """Returns a list of MP4 files in the folder that have not been transcribed (no TXT), are >1MB, and accessible."""
-    files = os.listdir(folder)
+    try:
+        files = os.listdir(folder)
+    except FileNotFoundError:
+        print(f"Folder not found (skipping): {folder}")
+        return []
     mp4s = [f for f in files if f.lower().endswith('.mp4')]
     unhandled = []
     for mp4 in mp4s:
         mp4_path = os.path.join(folder, mp4)
-        txt_path = os.path.splitext(mp4_path)[0] + '.txt'
+        # Create transcriptions subfolder path
+        transcriptions_folder = os.path.join(folder, "transcriptions")
+        mp4_basename = os.path.splitext(mp4)[0]
+        txt_path = os.path.join(transcriptions_folder, mp4_basename + '.txt')
         # Skip if transcript already exists
         if os.path.exists(txt_path):
             continue
@@ -91,10 +112,11 @@ def get_unhandled_mp4s(folder):
 
 
 def process_folder(model, folder):
-    """Processes all unhandled MP4s in a folder, rescanning until all are handled."""
+    """Processes all unhandled MP4s in a folder, rescanning until all are handled. Skips folder if not found."""
     while True:
         unhandled = get_unhandled_mp4s(folder)
-        if not unhandled:
+        if unhandled == []:
+            # If the folder is missing, get_unhandled_mp4s logs and returns [], so break
             break
         for mp4_file in unhandled:
             print(f"Transcribing {mp4_file}...")
@@ -102,7 +124,11 @@ def process_folder(model, folder):
             try:
                 # Transcribe and save transcript
                 transcript, info, extract_time, transcribe_time = transcribe_file(model, mp4_file)
-                txt_path = os.path.splitext(mp4_file)[0] + ".txt"
+                # Create transcriptions subfolder and save transcript there
+                transcriptions_folder = os.path.join(folder, "transcriptions")
+                os.makedirs(transcriptions_folder, exist_ok=True)
+                mp4_basename = os.path.splitext(os.path.basename(mp4_file))[0]
+                txt_path = os.path.join(transcriptions_folder, mp4_basename + ".txt")
                 with open(txt_path, "w", encoding="utf-8") as f:
                     f.write(f"Detected language: {info.language} (probability: {info.language_probability})\n")
                     f.write(transcript)
@@ -123,7 +149,7 @@ def main():
     root_folder = sys.argv[1]
     log_dir = os.path.join(root_folder, "logs")
     setup_logging(log_dir)
-    print("Initializing Whisper model...")
+    print("Starting up - initializing Whisper model...")
     model_init_start = time.time()
     # Load the Whisper model once and reuse for all files
     model = WhisperModel("ivrit-ai/whisper-large-v3-turbo-ct2", device="cpu", compute_type="int8")

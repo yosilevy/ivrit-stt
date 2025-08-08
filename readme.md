@@ -119,6 +119,12 @@ source venv/bin/activate
 nohup python /home/yosi/share/transcribe.py /home/yosi/share/
 ```
 
+Or on Win:
+```
+venv\Scripts\activate.bat
+python transcribe.py C:\Users\JosephLevy\Videos\STT-test
+```
+
 The new videos should be saved by webcam to subfolders of /share/
 
 # View live log
