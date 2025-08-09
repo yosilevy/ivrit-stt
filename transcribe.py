@@ -11,6 +11,10 @@ from logging.handlers import RotatingFileHandler
 SCAN_SLEEP_SECONDS = 120  # 2 minutes
 # Minimum file size (in MB) for an MP4 to be considered for transcription
 MIN_FILE_SIZE_MB = 1
+# Minimum file age (in seconds) to consider a file stable (reduce chance of reading while still being written)
+MIN_FILE_AGE_SECONDS = 60
+# Extension used to mark files that failed processing so we don't retry in a tight loop
+ERROR_MARKER_EXTENSION = ".error"
 
 
 def setup_logging(log_dir):
@@ -59,25 +63,37 @@ def extract_audio(input_file, output_wav):
 def transcribe_file(model, mp4_file):
     """Extracts audio, transcribes it, and returns transcript, info, extraction time, and transcription time."""
     wav_file = mp4_file + ".wav"
-    extract_time = extract_audio(mp4_file, wav_file)
-    start = time.time()
-    segments, info = model.transcribe(wav_file, beam_size=5)
-    end = time.time()
-    transcript = "\n".join([f"[{segment.start:.2f}s -> {segment.end:.2f}s] {segment.text}" for segment in segments])
-    os.remove(wav_file)
-    return transcript, info, extract_time, end - start
+    extract_time = None
+    try:
+        extract_time = extract_audio(mp4_file, wav_file)
+        start = time.time()
+        segments, info = model.transcribe(wav_file, beam_size=5)
+        end = time.time()
+        transcript = "\n".join([f"[{segment.start:.2f}s -> {segment.end:.2f}s] {segment.text}" for segment in segments])
+        return transcript, info, extract_time, end - start
+    finally:
+        # Ensure temporary wav is cleaned up regardless of success/failure
+        try:
+            if os.path.exists(wav_file):
+                os.remove(wav_file)
+        except Exception:
+            # Best-effort cleanup; continue
+            pass
 
 
 def get_subfolders_sorted_by_date(root_folder):
     """Returns a list of subfolders under root_folder, sorted by ascending modification date."""
     subfolders = [os.path.join(root_folder, d) for d in os.listdir(root_folder)
                   if os.path.isdir(os.path.join(root_folder, d))]
-    subfolders.sort(key=lambda x: os.path.getmtime(x))
+    # Sort by folder name (case-insensitive)
+    subfolders.sort(key=lambda x: os.path.basename(x).lower())
     return subfolders
 
 
 def get_unhandled_mp4s(folder):
-    """Returns a list of MP4 files in the folder that have not been transcribed (no TXT), are >1MB, and accessible."""
+    """Returns a list of MP4 files in the folder that have not been transcribed (no TXT),
+    have no error marker, are older than MIN_FILE_AGE_SECONDS, are > MIN_FILE_SIZE_MB, and are accessible.
+    """
     try:
         files = os.listdir(folder)
     except FileNotFoundError:
@@ -91,8 +107,12 @@ def get_unhandled_mp4s(folder):
         transcriptions_folder = os.path.join(folder, "transcriptions")
         mp4_basename = os.path.splitext(mp4)[0]
         txt_path = os.path.join(transcriptions_folder, mp4_basename + '.txt')
+        error_marker_path = os.path.join(transcriptions_folder, mp4_basename + ERROR_MARKER_EXTENSION)
         # Skip if transcript already exists
         if os.path.exists(txt_path):
+            continue
+        # Skip if previously marked as error
+        if os.path.exists(error_marker_path):
             continue
         try:
             # Skip if not a file or too small
@@ -100,6 +120,10 @@ def get_unhandled_mp4s(folder):
                 continue
             size_mb = os.path.getsize(mp4_path) / (1024 * 1024)
             if size_mb < MIN_FILE_SIZE_MB:
+                continue
+            # Skip if file is too new (may still be written to)
+            file_age_seconds = time.time() - os.path.getmtime(mp4_path)
+            if file_age_seconds < MIN_FILE_AGE_SECONDS:
                 continue
             # Try opening the file to check accessibility
             with open(mp4_path, 'rb') as f:
@@ -138,6 +162,19 @@ def process_folder(model, folder):
             except Exception as e:
                 print(f"Error processing {mp4_file}: {e}")
                 traceback.print_exc()
+                # Mark this file with an error marker so we don't retry in a tight loop
+                try:
+                    transcriptions_folder = os.path.join(folder, "transcriptions")
+                    os.makedirs(transcriptions_folder, exist_ok=True)
+                    mp4_basename = os.path.splitext(os.path.basename(mp4_file))[0]
+                    error_marker_path = os.path.join(transcriptions_folder, mp4_basename + ERROR_MARKER_EXTENSION)
+                    with open(error_marker_path, "w", encoding="utf-8") as f:
+                        f.write(f"Timestamp: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+                        f.write(f"Error: {repr(e)}\n")
+                        f.write("See transcribe.log for ffmpeg stderr details if applicable.\n")
+                    print(f"Created error marker (skipping next scans): {error_marker_path}")
+                except Exception as marker_error:
+                    print(f"Failed to create error marker for {mp4_file}: {marker_error}")
                 continue
 
 

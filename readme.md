@@ -8,7 +8,6 @@ It then uses Whisper Ivrit models on a MP4 to transcribe it.
 ```
 sudo apt update
 sudo apt upgrade
-sudo restart
 sudo reboot
 ```
 
@@ -60,6 +59,11 @@ sudo smbpasswd -e yosi
 
 Restart samba `sudo systemctl restart smbd`
 
+# Install ffmpeg
+```
+sudo apt install ffmpeg
+```
+
 # Install python
 ```
 sudo apt install python3
@@ -102,7 +106,7 @@ source venv/bin/activate
 # Install packages
 ```
 pip install --upgrade pip
-pip install ctranslate2 transformers ffmpeg-python soundfile protobuf faster-whisper ffmpeg
+pip install ctranslate2 transformers ffmpeg-python soundfile protobuf faster-whisper
 ```
 
 # Install files
